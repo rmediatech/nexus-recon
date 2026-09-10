@@ -1,0 +1,17 @@
+[package]
+name = "nexus-ledger"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "SQLite WAL time-series storage, host delta tracking, and audit snapshot persistence for Nexus-Recon"
+
+[dependencies]
+nexus-core = { path = "../nexus-core" }
+tokio = { workspace = true }
+rusqlite = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

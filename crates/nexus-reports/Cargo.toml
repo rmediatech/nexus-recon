@@ -1,0 +1,14 @@
+[package]
+name = "nexus-reports"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Zero-CDN Dark-Mode HTML dossiers, embedded SVG charts & sparklines, and air-gapped forensic exports for Nexus-Recon"
+
+[dependencies]
+nexus-core = { path = "../nexus-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
