@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Universal operator CLI for Nexus-Recon: Air-Gapped Subnet Incident Commander"
+description = "Tactical Incident Commander & Subnet Discovery CLI for NexusRecon"
 
 [[bin]]
 name = "nexus-recon"
@@ -12,6 +12,8 @@ path = "src/main.rs"
 
 [dependencies]
 nexus-core = { path = "../nexus-core" }
+nexus-telemetry = { path = "../nexus-telemetry" }
+nexus-scanner = { path = "../nexus-scanner" }
 nexus-ledger = { path = "../nexus-ledger" }
 nexus-reports = { path = "../nexus-reports" }
 tokio = { workspace = true }
@@ -22,3 +24,7 @@ tracing-subscriber = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
+ipnet = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

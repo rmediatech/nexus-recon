@@ -4,11 +4,17 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Zero-CDN Dark-Mode HTML dossiers, embedded SVG charts & sparklines, and air-gapped forensic exports for Nexus-Recon"
+description = "Decoupled Single Source of Truth report orchestrator and 6 formatters for NexusRecon"
 
 [dependencies]
 nexus-core = { path = "../nexus-core" }
+nexus-telemetry = { path = "../nexus-telemetry" }
+nexus-ledger = { path = "../nexus-ledger" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true }

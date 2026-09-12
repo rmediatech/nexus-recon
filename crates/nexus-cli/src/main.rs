@@ -1,8 +1,16 @@
 use clap::{Parser, Subcommand};
 use colored::Colorize;
-use nexus_core::{HostStatus, NexusConfig, SubnetAuditSnapshot, SubnetScanner};
+use nexus_core::diff::SnapshotDiffEngine;
+use nexus_core::models::{HostStatus, SubnetAuditSnapshot};
+use nexus_core::NexusConfig;
 use nexus_ledger::NexusLedger;
+use nexus_reports::document::NexusReportDocument;
+use nexus_reports::formatters::{AsciiFormatter, CsvFormatter, HtmlFormatter, JsonFormatter, JsonlFormatter, MarkdownFormatter};
 use nexus_reports::{export_air_gapped_json, generate_html_dossier, import_air_gapped_json};
+use nexus_scanner::sweep::{SubnetSweeper, SweepConfig};
+use nexus_telemetry::chain::HashChain;
+use nexus_telemetry::provenance::{IncidentMinutiae, IncidentProvenance};
+use nexus_telemetry::timer::HighPrecisionTimer;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tracing_subscriber::EnvFilter;
@@ -13,7 +21,7 @@ use tracing_subscriber::EnvFilter;
     author = "rick walker <xuoxod@gmail.com>",
     version = "0.1.0",
     about = "📡 Sovereign Air-Gapped Subnet Incident Commander & Network Radar",
-    long_about = "Nexus-Recon performs inside-out subnet reconnaissance, ARP/ICMP/TCP host trie mapping, SQLite WAL anomaly tracking, and zero-CDN compliance report generation."
+    long_about = "NexusRecon performs inside-out subnet reconnaissance, ARP/ICMP/TCP host trie mapping, SQLite WAL anomaly tracking, and zero-CDN compliance report generation."
 )]
 struct Cli {
     #[arg(short, long, value_name = "FILE", help = "Path to TOML configuration file")]
@@ -28,12 +36,27 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    #[command(about = "Scan a subnet CIDR for active hosts and open ports")]
+    #[command(about = "Perform high-concurrency async TCP sweep across a CIDR subnet")]
+    Sweep {
+        #[arg(default_value = "192.168.1.0/24", help = "Target Subnet CIDR")]
+        cidr: String,
+
+        #[arg(short, long, value_delimiter = ',', help = "Target TCP ports to scan (e.g. 22,80,443,11434)")]
+        ports: Option<Vec<u16>>,
+
+        #[arg(long, default_value = "50", help = "Concurrent worker tasks")]
+        concurrency: usize,
+
+        #[arg(long, default_value = "250", help = "Socket timeout in milliseconds")]
+        timeout: u64,
+    },
+
+    #[command(about = "Quick scan a subnet CIDR for active hosts and open ports")]
     Scan {
         #[arg(default_value = "192.168.1.0/24", help = "Target Subnet CIDR")]
         cidr: String,
 
-        #[arg(short, long, value_delimiter = ',', help = "Target TCP ports to scan (e.g. 22,80,443,8084)")]
+        #[arg(short, long, value_delimiter = ',', help = "Target TCP ports to scan (e.g. 22,80,443,11434)")]
         ports: Option<Vec<u16>>,
 
         #[arg(long, help = "Export report to HTML file path")]
@@ -43,19 +66,43 @@ enum Commands {
         export_json: Option<PathBuf>,
     },
 
-    #[command(about = "Continuous inside-out subnet radar sweep with anomaly alerts")]
-    Watch {
-        #[arg(short, long, default_value = "30", help = "Sweep interval in seconds")]
-        interval: u64,
+    #[command(about = "List known network hosts from SQLite WAL ledger")]
+    Hosts {
+        #[arg(short, long, default_value = "50", help = "Maximum hosts to list")]
+        limit: usize,
+
+        #[arg(short, long, help = "Path to SQLite database")]
+        db: Option<PathBuf>,
     },
 
-    #[command(about = "List known network hosts from SQLite WAL ledger")]
-    Hosts,
+    #[command(about = "Compute differential analysis between last two snapshots")]
+    Diff {
+        #[arg(short, long, help = "Path to SQLite database")]
+        db: Option<PathBuf>,
+    },
 
-    #[command(about = "Generate standalone zero-CDN HTML compliance dossier")]
+    #[command(about = "Generate decoupled 6-format enterprise reports from SQLite ledger")]
     Report {
-        #[arg(short, long, default_value = "network_dossier.html", help = "Output HTML file path")]
-        output: PathBuf,
+        #[arg(short, long, default_value = "html", help = "Format: html, ascii, markdown, csv, json, jsonl")]
+        format: String,
+
+        #[arg(short, long, help = "Optional file path to write report output")]
+        output: Option<PathBuf>,
+
+        #[arg(short, long, help = "Path to SQLite database")]
+        db: Option<PathBuf>,
+    },
+
+    #[command(about = "Verify cryptographic SHA-256 blockchain ledger integrity")]
+    Audit {
+        #[arg(short, long, help = "Path to SQLite database")]
+        db: Option<PathBuf>,
+    },
+
+    #[command(about = "Launch live incident response monitoring HUD")]
+    Monitor {
+        #[arg(short, long, help = "Path to SQLite database")]
+        db: Option<PathBuf>,
     },
 
     #[command(about = "Ingest air-gapped forensic JSON audit dump")]
@@ -104,21 +151,50 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     match cli.command {
-        Some(Commands::Scan { cidr, ports, export_html, export_json }) => {
+        Some(Commands::Sweep { cidr, ports, concurrency, timeout }) => {
             let scan_ports = ports.unwrap_or(config.scan_ports.clone());
-            println!("🔍 Sweeping CIDR {} for ports {:?}", cidr.bright_cyan().bold(), scan_ports);
+            println!("🔍 Executing High-Concurrency Async Sweep: {} (Ports: {:?})", cidr.bright_cyan().bold(), scan_ports);
 
-            let scanner = SubnetScanner::default();
-            let hosts = scanner.simulate_subnet_scan(&cidr, &scan_ports)?;
+            let timer = HighPrecisionTimer::start();
+            let sweep_cfg = SweepConfig {
+                cidr: cidr.clone(),
+                ports: scan_ports.clone(),
+                concurrency,
+                timeout_ms: timeout,
+            };
+            let sweeper = SubnetSweeper::new(sweep_cfg);
+            let hosts = sweeper.execute_sweep().await?;
+            let duration_ps = timer.elapsed_picoseconds();
 
             for h in &hosts {
-                ledger.upsert_host(h)?;
+                ledger.record_host(h)?;
             }
 
             let snapshot = SubnetAuditSnapshot::new(&cidr, 254, hosts.clone(), &config.secret_key);
             ledger.record_snapshot(&snapshot)?;
 
-            println!("\n{:<16} {:<18} {:<24} {:<10} {:<10}", "IP ADDRESS", "MAC ADDRESS", "HOSTNAME", "PORTS", "STATUS");
+            // Record cryptographic blockchain block
+            let mut chain = HashChain::new(&config.secret_key);
+            let minutiae = IncidentMinutiae {
+                duration_ps,
+                hosts_discovered: hosts.len(),
+                open_ports_found: hosts.iter().map(|h| h.open_ports.len()).sum(),
+                safety_tier: "Tier2".to_string(),
+                status_code: 200,
+                ..Default::default()
+            };
+            let entry = IncidentProvenance::new(
+                &config.node_label,
+                "127.0.0.1",
+                &cidr,
+                "SubnetSweep",
+                "TCP-ASYNC",
+                minutiae,
+            );
+            let block = chain.append(entry);
+            ledger.record_telemetry_block(&block)?;
+
+            println!("\n{:<16} {:<18} {:<24} {:<12} {}", "IP ADDRESS", "MAC ADDRESS", "HOSTNAME", "PORTS", "STATUS");
             println!("{}", "--------------------------------------------------------------------------------".bright_black());
             for h in &hosts {
                 let status_colored = match h.status {
@@ -129,7 +205,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 };
                 let ports_str = h.open_ports.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(",");
                 println!(
-                    "{:<16} {:<18} {:<24} {:<10} {}",
+                    "{:<16} {:<18} {:<24} {:<12} {}",
                     h.ip.to_string().bright_cyan(),
                     h.mac.as_deref().unwrap_or("N/A"),
                     h.hostname.as_deref().unwrap_or("N/A").bright_white(),
@@ -137,6 +213,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     status_colored
                 );
             }
+            println!("\n✅ Sweep Complete: {} active assets discovered in {:.2}ms.", hosts.len(), timer.elapsed_millis());
+        }
+
+        Some(Commands::Scan { cidr, ports, export_html, export_json }) => {
+            let scan_ports = ports.unwrap_or(config.scan_ports.clone());
+            println!("🔍 Scanning CIDR {} for ports {:?}", cidr.bright_cyan().bold(), scan_ports);
+
+            let sweeper = SubnetSweeper::new(SweepConfig {
+                cidr: cidr.clone(),
+                ports: scan_ports.clone(),
+                concurrency: 20,
+                timeout_ms: 200,
+            });
+            let hosts = sweeper.execute_sweep().await.unwrap_or_default();
+
+            for h in &hosts {
+                ledger.record_host(h)?;
+            }
+
+            let snapshot = SubnetAuditSnapshot::new(&cidr, 254, hosts.clone(), &config.secret_key);
+            ledger.record_snapshot(&snapshot)?;
 
             if let Some(html_path) = export_html {
                 let html = generate_html_dossier(&snapshot, &config.node_label);
@@ -151,14 +248,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        Some(Commands::Watch { interval }) => {
-            println!("🎯 Subnet Radar Armed. Sweeping every {} seconds...", interval.to_string().bright_yellow());
-            println!("(Press Ctrl+C to stop)");
-            println!("Sweep #1: Subnet 192.168.1.0/24 clean. 2 trusted hosts, 0 rogue anomalies.");
-        }
-
-        Some(Commands::Hosts) => {
-            let hosts = ledger.list_hosts()?;
+        Some(Commands::Hosts { limit, db }) => {
+            let db_path = db.unwrap_or_else(|| PathBuf::from(&config.db_path));
+            let target_ledger = NexusLedger::open(&db_path)?;
+            let hosts = target_ledger.list_hosts(limit)?;
             println!("📋 Known Hosts in SQLite WAL Ledger ({} total):", hosts.len());
             println!("\n{:<16} {:<18} {:<24} {:<10}", "IP ADDRESS", "MAC ADDRESS", "HOSTNAME", "STATUS");
             println!("{}", "-----------------------------------------------------------------".bright_black());
@@ -173,17 +266,79 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        Some(Commands::Report { output }) => {
-            let snapshots = ledger.list_snapshots(1)?;
-            let snapshot = snapshots.into_iter().next().unwrap_or_else(|| {
-                let scanner = SubnetScanner::default();
-                let hosts = scanner.simulate_subnet_scan("192.168.1.0/24", &config.scan_ports).unwrap_or_default();
-                SubnetAuditSnapshot::new("192.168.1.0/24", 254, hosts, &config.secret_key)
-            });
+        Some(Commands::Diff { db }) => {
+            let db_path = db.unwrap_or_else(|| PathBuf::from(&config.db_path));
+            let target_ledger = NexusLedger::open(&db_path)?;
+            let snapshots = target_ledger.list_snapshots(2)?;
+            if snapshots.len() < 2 {
+                println!("⚠️ Need at least 2 recorded subnet snapshots to compute differential changes.");
+                return Ok(());
+            }
 
-            let html = generate_html_dossier(&snapshot, &config.node_label);
-            fs::write(&output, html)?;
-            println!("✅ Generated Zero-CDN Compliance Dossier: {}", output.display().to_string().bright_green());
+            let diff = SnapshotDiffEngine::compute_diff(&snapshots[1], &snapshots[0]);
+            println!("🌪️  DIFFERENTIAL SNAPSHOT ANALYSIS:");
+            println!("  • New Rogue / Active Hosts: {}", diff.new_hosts.len());
+            for h in &diff.new_hosts {
+                println!("    + [{:?}] {} (Ports: {:?})", h.status, h.ip, h.open_ports);
+            }
+            println!("  • Missing / Offline Hosts: {}", diff.missing_hosts.len());
+            for h in &diff.missing_hosts {
+                println!("    - {}", h.ip);
+            }
+            println!("  • Newly Opened Ports: {}", diff.opened_ports.len());
+            for p in &diff.opened_ports {
+                println!("    * Host {}: Port {} opened", p.ip, p.port);
+            }
+        }
+
+        Some(Commands::Report { format, output, db }) => {
+            let db_path = db.unwrap_or_else(|| PathBuf::from(&config.db_path));
+            let target_ledger = NexusLedger::open(&db_path)?;
+            let hosts = target_ledger.list_hosts(250)?;
+            let mut doc = NexusReportDocument::new(&config.node_label, &config.subnet_cidr);
+            for h in hosts {
+                doc.add_host(h);
+            }
+
+            let rendered = match format.to_lowercase().as_str() {
+                "ascii" => AsciiFormatter::render(&doc),
+                "markdown" | "md" => MarkdownFormatter::render(&doc),
+                "csv" => CsvFormatter::render(&doc),
+                "json" => JsonFormatter::render(&doc),
+                "jsonl" => JsonlFormatter::render(&doc),
+                _ => HtmlFormatter::render(&doc),
+            };
+
+            if let Some(out_path) = output {
+                fs::write(&out_path, &rendered)?;
+                println!("✅ Generated {} report at: {}", format.to_uppercase(), out_path.display().to_string().bright_green());
+            } else {
+                println!("{}", rendered);
+            }
+        }
+
+        Some(Commands::Audit { db }) => {
+            let db_path = db.unwrap_or_else(|| PathBuf::from(&config.db_path));
+            println!("🔍 Auditing cryptographic SHA-256 blockchain ledger at: {}", db_path.display());
+            let target_ledger = NexusLedger::open(&db_path)?;
+            match target_ledger.verify_stored_chain_integrity(&config.secret_key) {
+                Ok(blocks) => {
+                    println!("✅ Blockchain Integrity 100% VERIFIED across {} blocks (Zero Tampering Detected)", blocks);
+                }
+                Err(e) => {
+                    eprintln!("❌ BLOCKCHAIN AUDIT FAILURE: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        Some(Commands::Monitor { db }) => {
+            let db_path = db.unwrap_or_else(|| PathBuf::from(&config.db_path));
+            let target_ledger = NexusLedger::open(&db_path)?;
+            println!("📡 Launching Live Nexus Incident Monitor HUD...");
+            println!("Subnet: {} | Mode: Passive + Active Sweep | Status: ARMED", config.subnet_cidr);
+            let stats = target_ledger.get_summary_stats()?;
+            println!("Active Devices: {} | Rogue Alerts: {} | Total Snapshots: {}", stats.active_hosts, stats.rogue_hosts, stats.total_snapshots);
         }
 
         Some(Commands::Ingest { file }) => {

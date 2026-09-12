@@ -22,7 +22,7 @@ fn test_rw_ledger_host_upsert_and_retrieve() {
 
     ledger.upsert_host(&host).expect("Upsert should succeed");
 
-    let hosts = ledger.list_hosts().expect("List should succeed");
+    let hosts = ledger.list_hosts(100).expect("List should succeed");
     assert_eq!(hosts.len(), 1);
     assert_eq!(hosts[0].ip, ip);
     assert_eq!(hosts[0].hostname.as_deref(), Some("hyperion-prime"));
@@ -70,7 +70,7 @@ fn test_attack_sql_injection_defense() {
 
     ledger.upsert_host(&injection_host).expect("Parameterized query must safely escape payload");
 
-    let hosts = ledger.list_hosts().expect("Table must still exist and query cleanly");
+    let hosts = ledger.list_hosts(100).expect("Table must still exist and query cleanly");
     assert_eq!(hosts.len(), 1);
     assert_eq!(hosts[0].hostname.as_deref(), Some("evil-host' OR '1'='1"));
 }

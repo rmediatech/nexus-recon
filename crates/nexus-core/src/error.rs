@@ -23,6 +23,15 @@ pub enum NexusError {
     #[error("Database ledger error: {0}")]
     Database(String),
 
+    #[error("Unauthorized action: {0}")]
+    Unauthorized(String),
+
+    #[error("Dry-Run mode blocked action: {0}")]
+    DryRunBlocked(String),
+
+    #[error("Destructive action blocked: {0}")]
+    DestructiveActionBlocked(String),
+
     #[error("Integrity check failed: expected signature '{expected}', got '{actual}'")]
     IntegrityMismatch { expected: String, actual: String },
 }

@@ -1,0 +1,22 @@
+[package]
+name = "nexus-scanner"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "High-concurrency async TCP connect scanner, CIDR sweep engine, and service banner grabber for NexusRecon"
+
+[dependencies]
+nexus-core = { path = "../nexus-core" }
+nexus-telemetry = { path = "../nexus-telemetry" }
+tokio = { workspace = true }
+ipnet = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+futures-util = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

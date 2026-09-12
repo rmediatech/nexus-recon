@@ -12,7 +12,7 @@ pub enum HostStatus {
     Trusted,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HostRecord {
     pub ip: IpAddr,
     pub mac: Option<String>,
@@ -25,7 +25,7 @@ pub struct HostRecord {
     pub latency_ms: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PortScanResult {
     pub ip: IpAddr,
     pub port: u16,
@@ -34,7 +34,7 @@ pub struct PortScanResult {
     pub latency_ms: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SubnetAuditSnapshot {
     pub id: String,
     pub subnet_cidr: String,

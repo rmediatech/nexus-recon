@@ -1,4 +1,7 @@
-pub mod ledger;
-pub mod schema;
+pub mod error;
+pub mod models;
+pub mod repository;
 
-pub use ledger::NexusLedger;
+pub use error::LedgerError;
+pub use models::LedgerSummaryStats;
+pub use repository::NexusLedger;
