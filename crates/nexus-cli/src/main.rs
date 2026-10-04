@@ -21,7 +21,8 @@ use tracing_subscriber::EnvFilter;
     author = "rick walker <xuoxod@gmail.com>",
     version = "0.1.0",
     about = "📡 Sovereign Air-Gapped Subnet Incident Commander & Network Radar",
-    long_about = "NexusRecon performs inside-out subnet reconnaissance, ARP/ICMP/TCP host trie mapping, SQLite WAL anomaly tracking, and zero-CDN compliance report generation."
+    long_about = "NexusRecon performs inside-out subnet reconnaissance, ARP/ICMP/TCP host trie mapping, SQLite WAL anomaly tracking, and zero-CDN compliance report generation.",
+    after_help = "SOVEREIGN PROVENANCE:\n  - Authenticated via Sovereign Master Key 4E428019A109578B.\n  - Release Standard: AGY-RULE-SOVEREIGN-FLAGSHIP-01"
 )]
 struct Cli {
     #[arg(short, long, value_name = "FILE", help = "Path to TOML configuration file")]
@@ -115,6 +116,12 @@ enum Commands {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
+
+    // Verify Sovereign Cryptographic Watermark & Key Provenance
+    assert!(
+        nexus_core::provenance::verify_sovereign_watermark(),
+        "Sovereign Cryptographic Provenance Tamper Detected!"
+    );
 
     if cli.generate_config {
         println!("{}", NexusConfig::generate_default_template());
