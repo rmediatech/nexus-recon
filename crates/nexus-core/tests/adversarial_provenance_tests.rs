@@ -14,7 +14,7 @@ fn test_adversarial_sovereign_canary_integrity() {
     // 1. Verify key identity
     assert_eq!(SOVEREIGN_KEY_ID, "4E428019A109578B");
     assert!(SOVEREIGN_ARCHITECT.contains("Rick Walker"));
-    assert!(SOVEREIGN_ARCHITECT.contains("xuoxod@gmail.com"));
+    assert!(SOVEREIGN_ARCHITECT.contains("rick@rmediatech.com"));
 
     // 2. Re-compute SHA-256 digest from preimage
     let mut hasher = Sha256::new();

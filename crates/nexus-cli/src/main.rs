@@ -18,7 +18,7 @@ use tracing_subscriber::EnvFilter;
 #[derive(Parser)]
 #[command(
     name = "nexus-recon",
-    author = "rick walker <xuoxod@gmail.com>",
+    author = "Rick Walker <rick@rmediatech.com>",
     version = "0.1.0",
     about = "📡 Sovereign Air-Gapped Subnet Incident Commander & Network Radar",
     long_about = "NexusRecon performs inside-out subnet reconnaissance, ARP/ICMP/TCP host trie mapping, SQLite WAL anomaly tracking, and zero-CDN compliance report generation.",

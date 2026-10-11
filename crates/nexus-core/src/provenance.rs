@@ -7,7 +7,7 @@
 pub const SOVEREIGN_KEY_ID: &str = "4E428019A109578B";
 
 /// Authoritative Sovereign Architect Fingerprint and Identity.
-pub const SOVEREIGN_ARCHITECT: &str = "Rick Walker (Sovereign Release Signing Key) <xuoxod@gmail.com>";
+pub const SOVEREIGN_ARCHITECT: &str = "Rick Walker (Sovereign Release Signing Key) <rick@rmediatech.com>";
 
 /// Cryptographic Canary Token Preimage.
 pub const CANARY_PREIMAGE: &str = "SOVEREIGN-WATERMARK-NEXUSRECON-4E428019A109578B-RMD-2026-XUOXOD";
