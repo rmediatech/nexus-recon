@@ -1,5 +1,6 @@
 use crate::error::LedgerError;
 use crate::models::LedgerSummaryStats;
+use crate::schema::init_schema;
 use chrono::Utc;
 use nexus_core::models::{HostRecord, HostStatus, SubnetAuditSnapshot};
 use nexus_telemetry::chain::Block;
@@ -15,72 +16,14 @@ pub struct NexusLedger {
 impl NexusLedger {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, LedgerError> {
         let conn = Connection::open(path)?;
-        Self::init_connection(conn)
+        init_schema(&conn)?;
+        Ok(Self { conn: Mutex::new(conn) })
     }
 
     pub fn open_in_memory() -> Result<Self, LedgerError> {
         let conn = Connection::open_in_memory()?;
-        Self::init_connection(conn)
-    }
-
-    fn init_connection(conn: Connection) -> Result<Self, LedgerError> {
-        conn.execute_batch(
-            "PRAGMA journal_mode = WAL;
-             PRAGMA synchronous = NORMAL;
-             PRAGMA busy_timeout = 5000;
-             PRAGMA foreign_keys = ON;"
-        )?;
-
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS discovered_hosts (
-                ip TEXT PRIMARY KEY,
-                mac TEXT,
-                vendor TEXT,
-                hostname TEXT,
-                open_ports_json TEXT NOT NULL,
-                first_seen TEXT NOT NULL,
-                last_seen TEXT NOT NULL,
-                status TEXT NOT NULL,
-                latency_ms REAL NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS subnet_snapshots (
-                id TEXT PRIMARY KEY,
-                subnet_cidr TEXT NOT NULL,
-                timestamp TEXT NOT NULL,
-                total_hosts_scanned INTEGER NOT NULL,
-                active_hosts_count INTEGER NOT NULL,
-                rogue_hosts_count INTEGER NOT NULL,
-                hosts_json TEXT NOT NULL,
-                signature TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS telemetry_blocks (
-                block_index INTEGER PRIMARY KEY,
-                block_hash TEXT NOT NULL UNIQUE,
-                prev_hash TEXT NOT NULL,
-                payload_digest TEXT NOT NULL,
-                who TEXT NOT NULL,
-                source_addr TEXT NOT NULL,
-                dest_addr TEXT NOT NULL,
-                action TEXT NOT NULL,
-                transport TEXT NOT NULL,
-                safety_tier TEXT NOT NULL,
-                hosts_discovered INTEGER NOT NULL,
-                open_ports_found INTEGER NOT NULL,
-                duration_ps INTEGER NOT NULL,
-                timestamp_utc TEXT NOT NULL,
-                raw_json TEXT NOT NULL
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_hosts_status ON discovered_hosts(status);
-            CREATE INDEX IF NOT EXISTS idx_snapshots_time ON subnet_snapshots(timestamp);
-            CREATE INDEX IF NOT EXISTS idx_blocks_time ON telemetry_blocks(timestamp_utc);"
-        )?;
-
-        Ok(Self {
-            conn: Mutex::new(conn),
-        })
+        init_schema(&conn)?;
+        Ok(Self { conn: Mutex::new(conn) })
     }
 
     pub fn record_host(&self, host: &HostRecord) -> Result<(), LedgerError> {
@@ -111,7 +54,6 @@ impl NexusLedger {
                 host.latency_ms,
             ],
         )?;
-
         Ok(())
     }
 
@@ -135,8 +77,12 @@ impl NexusLedger {
 
             let ip: IpAddr = ip_str.parse().unwrap_or("0.0.0.0".parse().unwrap());
             let open_ports: Vec<u16> = serde_json::from_str(&ports_json).unwrap_or_default();
-            let first_seen = chrono::DateTime::parse_from_rfc3339(&first_seen_str).map(|dt| dt.with_timezone(&Utc)).unwrap_or_else(|_| Utc::now());
-            let last_seen = chrono::DateTime::parse_from_rfc3339(&last_seen_str).map(|dt| dt.with_timezone(&Utc)).unwrap_or_else(|_| Utc::now());
+            let first_seen = chrono::DateTime::parse_from_rfc3339(&first_seen_str)
+                .map(|dt| dt.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now());
+            let last_seen = chrono::DateTime::parse_from_rfc3339(&last_seen_str)
+                .map(|dt| dt.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now());
             let status = match status_str.as_str() {
                 "Trusted" => HostStatus::Trusted,
                 "Rogue" => HostStatus::Rogue,
@@ -186,7 +132,6 @@ impl NexusLedger {
                 snap.signature,
             ],
         )?;
-
         Ok(())
     }
 
@@ -256,7 +201,6 @@ impl NexusLedger {
                 raw_json,
             ],
         )?;
-
         Ok(())
     }
 
@@ -268,18 +212,19 @@ impl NexusLedger {
         )?;
 
         let rows = stmt.query_map([], |row| {
-            let index: i64 = row.get(0)?;
-            let block_hash: String = row.get(1)?;
-            let prev_hash: String = row.get(2)?;
-            let payload_digest: String = row.get(3)?;
-            let action: String = row.get(4)?;
-            let timestamp_utc: String = row.get(5)?;
-            let raw_json: String = row.get(6)?;
-            Ok((index as u64, block_hash, prev_hash, payload_digest, action, timestamp_utc, raw_json))
+            Ok((
+                row.get::<_, i64>(0)? as u64,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?,
+            ))
         })?;
 
-        let mut hasher = sha2::Sha256::default();
         use sha2::Digest;
+        let mut hasher = sha2::Sha256::default();
         hasher.update(b"NEXUS_RECON_GENESIS_V1:");
         hasher.update(seed.as_bytes());
         let mut expected_prev = hex::encode(hasher.finalize());
@@ -287,95 +232,37 @@ impl NexusLedger {
 
         for (expected_idx, row_res) in rows.enumerate() {
             let (idx, block_hash, prev_hash, payload_digest, action, timestamp_utc, raw_json) = row_res?;
-
             if idx != expected_idx as u64 {
-                return Err(LedgerError::SequenceMismatch {
-                    expected: expected_idx as u64,
-                    actual: idx,
-                });
+                return Err(LedgerError::SequenceMismatch { expected: expected_idx as u64, actual: idx });
             }
-
             if prev_hash != expected_prev {
-                return Err(LedgerError::BlockchainTamper {
-                    index: idx,
-                    calculated: prev_hash,
-                    expected: expected_prev,
-                });
+                return Err(LedgerError::BlockchainTamper { index: idx, calculated: prev_hash, expected: expected_prev });
             }
-
-            // Verify raw_json deserialization and internal integrity
             let block: Block = serde_json::from_str(&raw_json)?;
             if block.entry.what != action {
-                return Err(LedgerError::BlockchainTamper {
-                    index: idx,
-                    calculated: action,
-                    expected: block.entry.what,
-                });
+                return Err(LedgerError::BlockchainTamper { index: idx, calculated: action, expected: block.entry.what });
             }
-
             let calc_hash = Block::calculate_hash(idx, &timestamp_utc, &prev_hash, &payload_digest);
             if calc_hash != block_hash {
-                return Err(LedgerError::BlockchainTamper {
-                    index: idx,
-                    calculated: calc_hash,
-                    expected: block_hash,
-                });
+                return Err(LedgerError::BlockchainTamper { index: idx, calculated: calc_hash, expected: block_hash });
             }
-
             expected_prev = block_hash;
             count += 1;
         }
-
         Ok(count)
     }
 
     pub fn get_summary_stats(&self) -> Result<LedgerSummaryStats, LedgerError> {
         let conn = self.conn.lock().unwrap();
-
-        let total_hosts: usize = conn.query_row(
-            "SELECT COUNT(*) FROM discovered_hosts;",
-            [],
-            |r| r.get(0),
-        ).unwrap_or(0);
-
-        let active_hosts: usize = conn.query_row(
-            "SELECT COUNT(*) FROM discovered_hosts WHERE status = 'Active';",
-            [],
-            |r| r.get(0),
-        ).unwrap_or(0);
-
-        let rogue_hosts: usize = conn.query_row(
-            "SELECT COUNT(*) FROM discovered_hosts WHERE status = 'Rogue';",
-            [],
-            |r| r.get(0),
-        ).unwrap_or(0);
-
-        let stale_hosts: usize = conn.query_row(
-            "SELECT COUNT(*) FROM discovered_hosts WHERE status = 'Stale';",
-            [],
-            |r| r.get(0),
-        ).unwrap_or(0);
-
-        let total_snapshots: usize = conn.query_row(
-            "SELECT COUNT(*) FROM subnet_snapshots;",
-            [],
-            |r| r.get(0),
-        ).unwrap_or(0);
-
-        let total_blocks: usize = conn.query_row(
-            "SELECT COUNT(*) FROM telemetry_blocks;",
-            [],
-            |r| r.get(0),
-        ).unwrap_or(0);
-
+        let query_count = |sql: &str| conn.query_row(sql, [], |r| r.get(0)).unwrap_or(0);
         Ok(LedgerSummaryStats {
-            total_hosts,
-            active_hosts,
-            rogue_hosts,
-            stale_hosts,
+            total_hosts: query_count("SELECT COUNT(*) FROM discovered_hosts;"),
+            active_hosts: query_count("SELECT COUNT(*) FROM discovered_hosts WHERE status = 'Active';"),
+            rogue_hosts: query_count("SELECT COUNT(*) FROM discovered_hosts WHERE status = 'Rogue';"),
+            stale_hosts: query_count("SELECT COUNT(*) FROM discovered_hosts WHERE status = 'Stale';"),
             total_open_ports: 0,
-            total_snapshots,
-            total_blocks,
+            total_snapshots: query_count("SELECT COUNT(*) FROM subnet_snapshots;"),
+            total_blocks: query_count("SELECT COUNT(*) FROM telemetry_blocks;"),
         })
     }
 }
