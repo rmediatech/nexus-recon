@@ -85,7 +85,7 @@ cargo test --workspace
 
 ### 4. Sweep Local Subnet
 ```bash
-./target/release/nexus-recon sweep 192.168.1.0/24 --ports 22,53,80,443,3000,8080,11434 --concurrency 64
+./target/release/nexus-recon sweep 192.0.2.0/24 --ports 22,53,80,443,3000,8080,11434 --concurrency 64
 ```
 
 ### 5. Run Differential Anomaly Detection

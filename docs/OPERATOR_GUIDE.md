@@ -176,10 +176,10 @@ Output:
 
 Execute the universal global orchestrator to perform full-spectrum automated verification:
 ```bash
-bash /home/emhcet/private/projects/universals/scripts/nexus-orchestrator.sh all
+bash $HOME/universals/scripts/nexus-orchestrator.sh all
 ```
 
 Or run the automated TDD battery:
 ```bash
-bash /home/emhcet/private/projects/universals/scripts/tests/nexus_orchestrator_tdd.sh
+bash $HOME/universals/scripts/tests/nexus_orchestrator_tdd.sh
 ```
