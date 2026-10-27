@@ -89,9 +89,9 @@ Every crate, module, and API route must satisfy all 6 testing tiers:
 
 * **Linode 1 (`rmediatech.com`) — Storefront & Control Plane**:
   * Customer registration, sovereign identity, Stripe recurring billing, tenant API key provisioning, and interactive live demo rooms.
-* **Linode 2 (`sfu.rmediatech.com`) — Private Node**:
+* **Linode 2 (`sfu.example.com`) — Private Node**:
   * Untouched, dedicated to private internal WebRTC and Matrix communications.
-* **Linode 3 (`livekit.rmediatech.com`) — Commercial SFU & Ledger**:
+* **Linode 3 (`livekit.example.com`) — Commercial SFU & Ledger**:
   * Pure high-speed LiveKit media fanout and SovereignLedger append log. 100% autonomous video forwarding with zero web application overhead.
 * **The Working-Class Zero-Waste Rule**:
   * Never purchase or deploy servers ahead of revenue. Maximize existing hardware capacity and only scale nodes when paying customer revenue funds it.
